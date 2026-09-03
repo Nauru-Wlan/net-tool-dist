@@ -11,7 +11,7 @@
 #  KONFIGURATION
 # =====================================================================
 $ScriptVersion     = "1.0.0"
-$UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net_tool_dist/main/version.json"
+$UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 # =====================================================================
 
 Add-Type -AssemblyName System.Windows.Forms
