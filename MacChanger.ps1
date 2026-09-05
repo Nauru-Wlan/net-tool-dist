@@ -7,14 +7,34 @@
     auf eine neuere Version (Auto-Update ueber GitHub) sowie eine gueltige
     Lizenz (ueber Google Apps Script).
 #>
+param(
+    [switch]$SilentUpdateOnly
+)
 
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.1.0"
+$ScriptVersion     = "1.2.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
+
+# ---- Stiller Hintergrund-Update-Check (ueber Aufgabenplanung) ----
+# Laeuft ohne Adminrechte, ohne GUI, ohne Splash - prueft nur kurz und beendet sich.
+if ($SilentUpdateOnly) {
+    try {
+        $manifest = Invoke-RestMethod -Uri $UpdateManifestUrl -TimeoutSec 5 -ErrorAction Stop
+        if ($manifest.version -and $manifest.url -and ([version]$manifest.version -gt [version]$ScriptVersion)) {
+            $tempFile = Join-Path $env:TEMP "MacChanger_new.ps1"
+            Invoke-WebRequest -Uri $manifest.url -OutFile $tempFile -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
+            if ((Get-Item $tempFile).Length -ge 100) {
+                Copy-Item -Path $tempFile -Destination $PSCommandPath -Force
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch { }
+    exit
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -424,7 +444,7 @@ $button.Add_Click({
         if ($ok) {
             Add-UsedMac $mac
             [System.Windows.Forms.MessageBox]::Show(
-                "Neue MAC-Adresse eingestellt fuer:`n$($adapter.Name)`n`nVorher:  $(Format-Mac $oldMac)`nNachher: $(Format-Mac $mac)",
+                "Erfolg",
                 "Erfolg",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
