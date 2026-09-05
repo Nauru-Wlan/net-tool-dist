@@ -4,14 +4,16 @@
     Setzt eine zufaellige, lokal administrierte MAC-Adresse (LAN/WLAN-tauglich)
     fuer den aktiven Netzwerkadapter, merkt sich bereits verwendete Adressen,
     zeigt waehrend des Adapter-Neustarts einen Hinweis und prueft beim Start
-    auf eine neuere Version (Auto-Update ueber GitHub).
+    auf eine neuere Version (Auto-Update ueber GitHub) sowie eine gueltige
+    Lizenz (ueber Google Apps Script).
 #>
 
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.0.0"
+$ScriptVersion     = "1.1.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
+$LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
 
 Add-Type -AssemblyName System.Windows.Forms
@@ -27,6 +29,29 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     exit
 }
 
+# ---- Icon aus shell32.dll laden (einheitliches Aussehen statt PowerShell-Symbol) ----
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class IconExtractor {
+    [DllImport("shell32.dll", CharSet = CharSet.Auto)]
+    public static extern int ExtractIconEx(string lpszFile, int nIconIndex, IntPtr[] phiconLarge, IntPtr[] phiconSmall, int nIcons);
+}
+"@
+
+function Get-AppIcon {
+    try {
+        $large = New-Object IntPtr[] 1
+        $small = New-Object IntPtr[] 1
+        [IconExtractor]::ExtractIconEx("$env:SystemRoot\System32\shell32.dll", 43, $large, $small, 1) | Out-Null
+        if ($large[0] -ne [IntPtr]::Zero) {
+            return [System.Drawing.Icon]::FromHandle($large[0])
+        }
+    } catch { }
+    return $null
+}
+$appIcon = Get-AppIcon
+
 # ---- Speicherort fuer bereits verwendete MAC-Adressen (versteckt) ----
 $dataDir  = Join-Path $env:LOCALAPPDATA "MacRandomizer"
 $usedFile = Join-Path $dataDir "used_macs.dat"
@@ -40,6 +65,152 @@ if (-not (Test-Path $usedFile)) {
     (Get-Item $usedFile).Attributes = 'Hidden'
 }
 
+$licenseFile = Join-Path $dataDir "license.dat"
+
+# =====================================================================
+#  LADEBILDSCHIRM (waehrend Update-/Lizenzpruefung im Hintergrund laeuft)
+# =====================================================================
+function New-SplashForm {
+    $splash = New-Object System.Windows.Forms.Form
+    $splash.Text = "MAC-Adressen-Wechsler"
+    $splash.Size = New-Object System.Drawing.Size(340, 130)
+    $splash.StartPosition = "CenterScreen"
+    $splash.FormBorderStyle = 'FixedDialog'
+    $splash.ControlBox = $false
+    $splash.MaximizeBox = $false
+    $splash.MinimizeBox = $false
+    $splash.TopMost = $true
+    if ($appIcon) { $splash.Icon = $appIcon }
+
+    $splashLabel = New-Object System.Windows.Forms.Label
+    $splashLabel.Text = "Wird gestartet ..."
+    $splashLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12)
+    $splashLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+    $splashLabel.Dock = 'Fill'
+    $splash.Controls.Add($splashLabel)
+
+    return @{ Form = $splash; Label = $splashLabel }
+}
+
+function Set-SplashStatus {
+    param($Splash, [string]$Text)
+    $Splash.Label.Text = $Text
+    $Splash.Form.Refresh()
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+$splash = New-SplashForm
+$splash.Form.Show()
+Set-SplashStatus -Splash $splash -Text "Wird gestartet ..."
+
+# =====================================================================
+#  LIZENZ-FUNKTIONEN
+# =====================================================================
+function Get-StoredLicenseKey {
+    if (Test-Path $licenseFile) { return (Get-Content $licenseFile -Raw).Trim() }
+    return $null
+}
+
+function Set-StoredLicenseKey {
+    param([string]$Key)
+    Set-Content -Path $licenseFile -Value $Key -NoNewline
+    (Get-Item $licenseFile).Attributes = 'Hidden'
+}
+
+function Get-HardwareId {
+    try {
+        $uuid = (Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).UUID
+        $bios = (Get-CimInstance -ClassName Win32_BIOS -ErrorAction Stop).SerialNumber
+        $raw  = "$uuid-$bios"
+    } catch {
+        $raw = $env:COMPUTERNAME
+    }
+    $sha   = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($raw)
+    $hash  = $sha.ComputeHash($bytes)
+    return ([BitConverter]::ToString($hash) -replace '-', '').Substring(0, 32)
+}
+
+function Test-LicenseOnline {
+    param([string]$Key, [string]$Hwid)
+    try {
+        $url  = "$LicenseApiUrl`?key=$([uri]::EscapeDataString($Key))&hwid=$Hwid"
+        $resp = Invoke-RestMethod -Uri $url -TimeoutSec 10 -ErrorAction Stop
+        return $resp.status
+    } catch {
+        return "offline"
+    }
+}
+
+function Confirm-License {
+    Add-Type -AssemblyName Microsoft.VisualBasic
+
+    $storedKey = Get-StoredLicenseKey
+    $hadStoredKeyBefore = [bool]$storedKey
+
+    if (-not $storedKey) {
+        $splash.Form.Hide()
+        $storedKey = [Microsoft.VisualBasic.Interaction]::InputBox(
+            "Bitte gib deinen Lizenzschluessel ein:", "Lizenz erforderlich", "")
+        $splash.Form.Show()
+        if ([string]::IsNullOrWhiteSpace($storedKey)) {
+            $splash.Form.Hide()
+            [System.Windows.Forms.MessageBox]::Show(
+                "Ohne gueltigen Lizenzschluessel kann das Tool nicht gestartet werden.",
+                "Lizenz erforderlich",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+            exit
+        }
+    }
+
+    Set-SplashStatus -Splash $splash -Text "Lizenz wird geprueft ..."
+    $hwid   = Get-HardwareId
+    $status = Test-LicenseOnline -Key $storedKey -Hwid $hwid
+
+    switch ($status) {
+        "ok" {
+            Set-StoredLicenseKey -Key $storedKey
+            return
+        }
+        "invalid" {
+            Remove-Item $licenseFile -ErrorAction SilentlyContinue
+            $splash.Form.Hide()
+            [System.Windows.Forms.MessageBox]::Show(
+                "Der eingegebene Lizenzschluessel ist ungueltig.",
+                "Ungueltiger Schluessel",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+            exit
+        }
+        "used_by_other_device" {
+            $splash.Form.Hide()
+            [System.Windows.Forms.MessageBox]::Show(
+                "Dieser Lizenzschluessel wird bereits auf einem anderen Geraet verwendet.",
+                "Lizenz bereits verwendet",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+            exit
+        }
+        "offline" {
+            if ($hadStoredKeyBefore) {
+                return
+            } else {
+                $splash.Form.Hide()
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Fuer die Erstaktivierung wird eine Internetverbindung benoetigt.",
+                    "Keine Verbindung",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+                exit
+            }
+        }
+    }
+}
+
+# =====================================================================
+#  MAC-WECHSEL-FUNKTIONEN
+# =====================================================================
 function Get-UsedMacs {
     if (Test-Path $usedFile) { @(Get-Content $usedFile) } else { @() }
 }
@@ -58,6 +229,11 @@ function New-RandomMac {
         $mac = ($bytes | ForEach-Object { "{0:X2}" -f $_ }) -join ""
     } while ($used -contains $mac)
     return $mac
+}
+
+function Format-Mac {
+    param([string]$Mac)
+    return ($Mac -replace '(..)(?!$)', '$1:')
 }
 
 function Get-ActiveAdapter {
@@ -89,7 +265,6 @@ function Set-AdapterMac {
 
     Set-ItemProperty -Path $target -Name "NetworkAddress" -Value $Mac -Type String
 
-    # Grosses Hinweisfenster einblenden, solange die Verbindung getrennt ist
     $NoticeForm.Show()
     $NoticeForm.Refresh()
 
@@ -120,6 +295,7 @@ function New-NoticeForm {
     $notice.MinimizeBox = $false
     $notice.TopMost = $true
     $notice.BackColor = [System.Drawing.Color]::FromArgb(230, 57, 70)
+    if ($appIcon) { $notice.Icon = $appIcon }
 
     $noticeLabel = New-Object System.Windows.Forms.Label
     $noticeLabel.Text = "Ihre Netzwerkverbindung wird`nkurz getrennt ..."
@@ -136,6 +312,7 @@ function New-NoticeForm {
 #  AUTO-UPDATE
 # =====================================================================
 function Test-AndApplyUpdate {
+    Set-SplashStatus -Splash $splash -Text "Suche nach Updates ..."
     try {
         $manifest = Invoke-RestMethod -Uri $UpdateManifestUrl -TimeoutSec 5 -ErrorAction Stop
     } catch {
@@ -149,6 +326,7 @@ function Test-AndApplyUpdate {
     }
 
     try {
+        Set-SplashStatus -Splash $splash -Text "Update wird installiert ..."
         $tempFile = Join-Path $env:TEMP "MacChanger_new.ps1"
         Invoke-WebRequest -Uri $manifest.url -OutFile $tempFile -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
 
@@ -157,6 +335,7 @@ function Test-AndApplyUpdate {
         Copy-Item -Path $tempFile -Destination $PSCommandPath -Force
         Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
 
+        $splash.Form.Hide()
         [System.Windows.Forms.MessageBox]::Show(
             "Eine neue Version ($($manifest.version)) wurde installiert.`nDas Tool wird jetzt neu gestartet.",
             "Update installiert",
@@ -175,29 +354,54 @@ if (Test-AndApplyUpdate) {
     exit
 }
 
+Confirm-License
+
+Set-SplashStatus -Splash $splash -Text "Bereit."
+$splash.Form.Close()
+
 # =====================================================================
 #  HAUPTFENSTER
 # =====================================================================
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "MAC-Adressen-Wechsler v$ScriptVersion"
-$form.Size = New-Object System.Drawing.Size(380, 190)
+$form.Size = New-Object System.Drawing.Size(400, 260)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
+if ($appIcon) { $form.Icon = $appIcon }
 
 $label = New-Object System.Windows.Forms.Label
 $label.Text = "Klicke auf den Button, um fuer den aktiven`nNetzwerkadapter eine neue, zufaellige`nMAC-Adresse einzustellen."
 $label.AutoSize = $false
-$label.Size = New-Object System.Drawing.Size(340, 60)
+$label.Size = New-Object System.Drawing.Size(360, 60)
 $label.Location = New-Object System.Drawing.Point(20, 15)
 $form.Controls.Add($label)
 
 $button = New-Object System.Windows.Forms.Button
 $button.Text = "Neue MAC-Adresse einstellen"
 $button.Size = New-Object System.Drawing.Size(240, 40)
-$button.Location = New-Object System.Drawing.Point(70, 90)
+$button.Location = New-Object System.Drawing.Point(80, 85)
 $form.Controls.Add($button)
+
+$statusLabel = New-Object System.Windows.Forms.Label
+$statusLabel.Text = "Adapter: wird ermittelt ...`nAktuelle MAC: wird ermittelt ..."
+$statusLabel.AutoSize = $false
+$statusLabel.Size = New-Object System.Drawing.Size(360, 50)
+$statusLabel.Location = New-Object System.Drawing.Point(20, 140)
+$statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+$statusLabel.ForeColor = [System.Drawing.Color]::DimGray
+$form.Controls.Add($statusLabel)
+
+function Update-StatusLabel {
+    $adapter = Get-ActiveAdapter
+    if ($adapter) {
+        $currentMac = Format-Mac ($adapter.MacAddress -replace '-', '')
+        $statusLabel.Text = "Adapter: $($adapter.Name)`nAktuelle MAC: $currentMac"
+    } else {
+        $statusLabel.Text = "Adapter: kein aktiver Adapter gefunden"
+    }
+}
 
 $noticeForm = New-NoticeForm
 
@@ -213,13 +417,14 @@ $button.Add_Click({
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     } else {
+        $oldMac = $adapter.MacAddress -replace '-', ''
         $mac = New-RandomMac
         $ok  = Set-AdapterMac -Adapter $adapter -Mac $mac -NoticeForm $noticeForm
 
         if ($ok) {
             Add-UsedMac $mac
             [System.Windows.Forms.MessageBox]::Show(
-                "Neue MAC-Adresse wurde eingestellt fuer:`n$($adapter.Name)",
+                "Neue MAC-Adresse eingestellt fuer:`n$($adapter.Name)`n`nVorher:  $(Format-Mac $oldMac)`nNachher: $(Format-Mac $mac)",
                 "Erfolg",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
@@ -232,8 +437,11 @@ $button.Add_Click({
         }
     }
 
+    Update-StatusLabel
     $button.Enabled = $true
     $button.Text = "Neue MAC-Adresse einstellen"
 })
+
+$form.Add_Shown({ Update-StatusLabel })
 
 [void]$form.ShowDialog()
