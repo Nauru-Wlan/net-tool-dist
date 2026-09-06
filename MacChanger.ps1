@@ -14,13 +14,12 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.3.0"
+$ScriptVersion     = "1.4.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
 
 # ---- Stiller Hintergrund-Update-Check (ueber Aufgabenplanung) ----
-# Laeuft ohne Adminrechte, ohne GUI, ohne Splash - prueft nur kurz und beendet sich.
 if ($SilentUpdateOnly) {
     try {
         $manifest = Invoke-RestMethod -Uri $UpdateManifestUrl -TimeoutSec 5 -ErrorAction Stop
@@ -49,6 +48,51 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
     exit
 }
 
+# =====================================================================
+#  EINHEITLICHES DESIGN (Farben/Schriften fuer alle Fenster)
+# =====================================================================
+$accentColor  = [System.Drawing.Color]::FromArgb(0, 120, 212)
+$textColor    = [System.Drawing.Color]::FromArgb(40, 40, 40)
+$subTextColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
+$bgColor      = [System.Drawing.Color]::White
+
+function New-AccentBar {
+    param([System.Windows.Forms.Form]$TargetForm)
+    $bar = New-Object System.Windows.Forms.Panel
+    $bar.BackColor = $accentColor
+    $bar.Dock = 'Top'
+    $bar.Height = 6
+    $TargetForm.Controls.Add($bar)
+}
+
+function New-StyledButton {
+    param([string]$Text, [int]$Width = 240, [int]$Height = 40)
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = $Text
+    $btn.Size = New-Object System.Drawing.Size($Width, $Height)
+    $btn.FlatStyle = 'Flat'
+    $btn.FlatAppearance.BorderSize = 0
+    $btn.BackColor = $accentColor
+    $btn.ForeColor = [System.Drawing.Color]::White
+    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+    return $btn
+}
+
+function New-SecondaryButton {
+    param([string]$Text, [int]$Width = 120, [int]$Height = 36)
+    $btn = New-Object System.Windows.Forms.Button
+    $btn.Text = $Text
+    $btn.Size = New-Object System.Drawing.Size($Width, $Height)
+    $btn.FlatStyle = 'Flat'
+    $btn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(200, 200, 200)
+    $btn.BackColor = [System.Drawing.Color]::White
+    $btn.ForeColor = $textColor
+    $btn.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
+    return $btn
+}
+
 # ---- Icon aus shell32.dll laden (einheitliches Aussehen statt PowerShell-Symbol) ----
 Add-Type @"
 using System;
@@ -72,6 +116,14 @@ function Get-AppIcon {
 }
 $appIcon = Get-AppIcon
 
+function Show-FriendlyError {
+    param([string]$Message, [string]$Title = "Fehler")
+    [System.Windows.Forms.MessageBox]::Show(
+        $Message, $Title,
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+}
+
 # ---- Speicherort fuer bereits verwendete MAC-Adressen (versteckt) ----
 $dataDir  = Join-Path $env:LOCALAPPDATA "MacRandomizer"
 $usedFile = Join-Path $dataDir "used_macs.dat"
@@ -93,21 +145,33 @@ $licenseFile = Join-Path $dataDir "license.dat"
 function New-SplashForm {
     $splash = New-Object System.Windows.Forms.Form
     $splash.Text = "MAC-Adressen-Wechsler"
-    $splash.Size = New-Object System.Drawing.Size(340, 130)
+    $splash.Size = New-Object System.Drawing.Size(360, 150)
     $splash.StartPosition = "CenterScreen"
     $splash.FormBorderStyle = 'FixedDialog'
     $splash.ControlBox = $false
     $splash.MaximizeBox = $false
     $splash.MinimizeBox = $false
     $splash.TopMost = $true
+    $splash.BackColor = $bgColor
     if ($appIcon) { $splash.Icon = $appIcon }
+
+    New-AccentBar -TargetForm $splash
 
     $splashLabel = New-Object System.Windows.Forms.Label
     $splashLabel.Text = "Wird gestartet ..."
-    $splashLabel.Font = New-Object System.Drawing.Font("Segoe UI", 12)
+    $splashLabel.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+    $splashLabel.ForeColor = $textColor
     $splashLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-    $splashLabel.Dock = 'Fill'
+    $splashLabel.Size = New-Object System.Drawing.Size(320, 40)
+    $splashLabel.Location = New-Object System.Drawing.Point(20, 40)
     $splash.Controls.Add($splashLabel)
+
+    $splashProgress = New-Object System.Windows.Forms.ProgressBar
+    $splashProgress.Style = 'Marquee'
+    $splashProgress.MarqueeAnimationSpeed = 30
+    $splashProgress.Size = New-Object System.Drawing.Size(280, 12)
+    $splashProgress.Location = New-Object System.Drawing.Point(40, 85)
+    $splash.Controls.Add($splashProgress)
 
     return @{ Form = $splash; Label = $splashLabel }
 }
@@ -162,69 +226,117 @@ function Test-LicenseOnline {
     }
 }
 
-function Confirm-License {
-    Add-Type -AssemblyName Microsoft.VisualBasic
+function Show-LicenseDialog {
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Lizenz aktivieren"
+    $dlg.Size = New-Object System.Drawing.Size(420, 260)
+    $dlg.StartPosition = "CenterScreen"
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = $bgColor
+    if ($appIcon) { $dlg.Icon = $appIcon }
 
-    $storedKey = Get-StoredLicenseKey
-    $hadStoredKeyBefore = [bool]$storedKey
+    New-AccentBar -TargetForm $dlg
 
-    if (-not $storedKey) {
-        $splash.Form.Hide()
-        $storedKey = [Microsoft.VisualBasic.Interaction]::InputBox(
-            "Bitte gib deinen Lizenzschluessel ein:", "Lizenz erforderlich", "")
-        $splash.Form.Show()
-        if ([string]::IsNullOrWhiteSpace($storedKey)) {
-            $splash.Form.Hide()
-            [System.Windows.Forms.MessageBox]::Show(
-                "Ohne gueltigen Lizenzschluessel kann das Tool nicht gestartet werden.",
-                "Lizenz erforderlich",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-            exit
-        }
+    $title = New-Object System.Windows.Forms.Label
+    $title.Text = "Lizenzschluessel eingeben"
+    $title.Font = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold)
+    $title.ForeColor = $textColor
+    $title.Size = New-Object System.Drawing.Size(370, 30)
+    $title.Location = New-Object System.Drawing.Point(20, 25)
+    $dlg.Controls.Add($title)
+
+    $sub = New-Object System.Windows.Forms.Label
+    $sub.Text = "Den Schluessel hast du nach dem Kauf erhalten."
+    $sub.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $sub.ForeColor = $subTextColor
+    $sub.Size = New-Object System.Drawing.Size(370, 20)
+    $sub.Location = New-Object System.Drawing.Point(20, 58)
+    $dlg.Controls.Add($sub)
+
+    $textBox = New-Object System.Windows.Forms.TextBox
+    $textBox.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+    $textBox.Size = New-Object System.Drawing.Size(370, 30)
+    $textBox.Location = New-Object System.Drawing.Point(20, 90)
+    $dlg.Controls.Add($textBox)
+
+    $okButton = New-StyledButton -Text "Aktivieren" -Width 170 -Height 38
+    $okButton.Location = New-Object System.Drawing.Point(20, 150)
+    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $dlg.Controls.Add($okButton)
+
+    $cancelButton = New-SecondaryButton -Text "Abbrechen" -Width 120 -Height 38
+    $cancelButton.Location = New-Object System.Drawing.Point(200, 150)
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dlg.Controls.Add($cancelButton)
+
+    $dlg.AcceptButton = $okButton
+    $dlg.CancelButton = $cancelButton
+    $textBox.Focus()
+
+    $result = $dlg.ShowDialog()
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $textBox.Text.Trim()
     }
+    return $null
+}
 
-    Set-SplashStatus -Splash $splash -Text "Lizenz wird geprueft ..."
-    $hwid   = Get-HardwareId
-    $status = Test-LicenseOnline -Key $storedKey -Hwid $hwid
+function Confirm-License {
+    try {
+        $storedKey = Get-StoredLicenseKey
+        $hadStoredKeyBefore = [bool]$storedKey
 
-    switch ($status) {
-        "ok" {
-            Set-StoredLicenseKey -Key $storedKey
-            return
-        }
-        "invalid" {
-            Remove-Item $licenseFile -ErrorAction SilentlyContinue
+        if (-not $storedKey) {
             $splash.Form.Hide()
-            [System.Windows.Forms.MessageBox]::Show(
-                "Der eingegebene Lizenzschluessel ist ungueltig.",
-                "Ungueltiger Schluessel",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-            exit
-        }
-        "used_by_other_device" {
-            $splash.Form.Hide()
-            [System.Windows.Forms.MessageBox]::Show(
-                "Dieser Lizenzschluessel wird bereits auf einem anderen Geraet verwendet.",
-                "Lizenz bereits verwendet",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-            exit
-        }
-        "offline" {
-            if ($hadStoredKeyBefore) {
-                return
-            } else {
+            $storedKey = Show-LicenseDialog
+            $splash.Form.Show()
+            if ([string]::IsNullOrWhiteSpace($storedKey)) {
                 $splash.Form.Hide()
-                [System.Windows.Forms.MessageBox]::Show(
-                    "Fuer die Erstaktivierung wird eine Internetverbindung benoetigt.",
-                    "Keine Verbindung",
-                    [System.Windows.Forms.MessageBoxButtons]::OK,
-                    [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+                Show-FriendlyError -Title "Lizenz erforderlich" `
+                    -Message "Ohne gueltigen Lizenzschluessel kann das Tool nicht gestartet werden."
                 exit
             }
         }
+
+        Set-SplashStatus -Splash $splash -Text "Lizenz wird geprueft ..."
+        $hwid   = Get-HardwareId
+        $status = Test-LicenseOnline -Key $storedKey -Hwid $hwid
+
+        switch ($status) {
+            "ok" {
+                Set-StoredLicenseKey -Key $storedKey
+                return
+            }
+            "invalid" {
+                Remove-Item $licenseFile -ErrorAction SilentlyContinue
+                $splash.Form.Hide()
+                Show-FriendlyError -Title "Ungueltiger Schluessel" `
+                    -Message "Der eingegebene Lizenzschluessel ist ungueltig."
+                exit
+            }
+            "used_by_other_device" {
+                $splash.Form.Hide()
+                Show-FriendlyError -Title "Lizenz bereits verwendet" `
+                    -Message "Dieser Lizenzschluessel wird bereits auf einem anderen Geraet verwendet."
+                exit
+            }
+            "offline" {
+                if ($hadStoredKeyBefore) {
+                    return
+                } else {
+                    $splash.Form.Hide()
+                    Show-FriendlyError -Title "Keine Verbindung" `
+                        -Message "Fuer die Erstaktivierung wird eine Internetverbindung benoetigt."
+                    exit
+                }
+            }
+        }
+    } catch {
+        $splash.Form.Hide()
+        Show-FriendlyError -Title "Unerwarteter Fehler" `
+            -Message "Bei der Lizenzpruefung ist ein unerwarteter Fehler aufgetreten.`nBitte versuche es spaeter erneut."
+        exit
     }
 }
 
@@ -269,76 +381,85 @@ function Get-ActiveAdapter {
 function Set-AdapterMac {
     param($Adapter, [string]$Mac, [System.Windows.Forms.Form]$NoticeForm)
 
-    $classGuid = "{4d36e972-e325-11ce-bfc1-08002be10318}"
-    $classPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$classGuid"
-    $subkeys   = Get-ChildItem $classPath -ErrorAction SilentlyContinue
+    try {
+        $classGuid = "{4d36e972-e325-11ce-bfc1-08002be10318}"
+        $classPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$classGuid"
+        $subkeys   = Get-ChildItem $classPath -ErrorAction Stop
 
-    $target = $null
-    foreach ($key in $subkeys) {
-        $props = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
-        if ($props.NetCfgInstanceId -eq $Adapter.InterfaceGuid) {
-            $target = $key.PSPath
-            break
+        $target = $null
+        foreach ($key in $subkeys) {
+            $props = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
+            if ($props.NetCfgInstanceId -eq $Adapter.InterfaceGuid) {
+                $target = $key.PSPath
+                break
+            }
         }
+        if (-not $target) {
+            return @{ Success = $false; Error = "Registry-Eintrag fuer diesen Adapter wurde nicht gefunden." }
+        }
+
+        Set-ItemProperty -Path $target -Name "NetworkAddress" -Value $Mac -Type String -ErrorAction Stop
+
+        $NoticeForm.Show()
+        $NoticeForm.Refresh()
+
+        Disable-NetAdapter -Name $Adapter.Name -Confirm:$false -ErrorAction Stop
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 200
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        Enable-NetAdapter -Name $Adapter.Name -Confirm:$false -ErrorAction Stop
+        for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 200
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+
+        $NoticeForm.Hide()
+        return @{ Success = $true; Error = $null }
+    } catch {
+        $NoticeForm.Hide()
+        return @{ Success = $false; Error = $_.Exception.Message }
     }
-    if (-not $target) { return $false }
-
-    Set-ItemProperty -Path $target -Name "NetworkAddress" -Value $Mac -Type String
-
-    $NoticeForm.Show()
-    $NoticeForm.Refresh()
-
-    Disable-NetAdapter -Name $Adapter.Name -Confirm:$false -ErrorAction SilentlyContinue
-    for ($i = 0; $i -lt 10; $i++) {
-        Start-Sleep -Milliseconds 200
-        [System.Windows.Forms.Application]::DoEvents()
-    }
-    Enable-NetAdapter -Name $Adapter.Name -Confirm:$false -ErrorAction SilentlyContinue
-    for ($i = 0; $i -lt 10; $i++) {
-        Start-Sleep -Milliseconds 200
-        [System.Windows.Forms.Application]::DoEvents()
-    }
-
-    $NoticeForm.Hide()
-
-    return $true
 }
 
 function New-NoticeForm {
     $notice = New-Object System.Windows.Forms.Form
     $notice.Text = "Bitte kurz warten"
-    $notice.Size = New-Object System.Drawing.Size(480, 220)
+    $notice.Size = New-Object System.Drawing.Size(480, 230)
     $notice.StartPosition = "CenterScreen"
     $notice.FormBorderStyle = 'FixedDialog'
     $notice.ControlBox = $false
     $notice.MaximizeBox = $false
     $notice.MinimizeBox = $false
     $notice.TopMost = $true
-    $notice.BackColor = [System.Drawing.Color]::White
+    $notice.BackColor = $bgColor
     if ($appIcon) { $notice.Icon = $appIcon }
 
-    $accentBar = New-Object System.Windows.Forms.Panel
-    $accentBar.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 212)
-    $accentBar.Dock = 'Top'
-    $accentBar.Height = 6
-    $notice.Controls.Add($accentBar)
+    New-AccentBar -TargetForm $notice
 
     $noticeLabel = New-Object System.Windows.Forms.Label
     $noticeLabel.Text = "Netzwerkverbindung wird kurz neu aufgebaut ..."
-    $noticeLabel.ForeColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
-    $noticeLabel.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+    $noticeLabel.ForeColor = $textColor
+    $noticeLabel.Font = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold)
     $noticeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-    $noticeLabel.Size = New-Object System.Drawing.Size(440, 60)
-    $noticeLabel.Location = New-Object System.Drawing.Point(20, 60)
+    $noticeLabel.Size = New-Object System.Drawing.Size(440, 50)
+    $noticeLabel.Location = New-Object System.Drawing.Point(20, 45)
     $notice.Controls.Add($noticeLabel)
+
+    $noticeProgress = New-Object System.Windows.Forms.ProgressBar
+    $noticeProgress.Style = 'Marquee'
+    $noticeProgress.MarqueeAnimationSpeed = 30
+    $noticeProgress.Size = New-Object System.Drawing.Size(360, 14)
+    $noticeProgress.Location = New-Object System.Drawing.Point(60, 105)
+    $notice.Controls.Add($noticeProgress)
 
     $subLabel = New-Object System.Windows.Forms.Label
     $subLabel.Text = "Das dauert nur wenige Sekunden. Dieses Fenster schliesst sich automatisch."
-    $subLabel.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
+    $subLabel.ForeColor = $subTextColor
     $subLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $subLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-    $subLabel.Size = New-Object System.Drawing.Size(440, 40)
-    $subLabel.Location = New-Object System.Drawing.Point(20, 130)
+    $subLabel.Size = New-Object System.Drawing.Size(440, 30)
+    $subLabel.Location = New-Object System.Drawing.Point(20, 140)
     $notice.Controls.Add($subLabel)
 
     return $notice
@@ -399,81 +520,84 @@ $splash.Form.Close()
 #  HAUPTFENSTER
 # =====================================================================
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "MAC-Adressen-Wechsler v$ScriptVersion"
-$form.Size = New-Object System.Drawing.Size(400, 260)
+$form.Text = "MAC-Adressen-Wechsler"
+$form.Size = New-Object System.Drawing.Size(420, 300)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.MinimizeBox = $false
+$form.BackColor = $bgColor
 if ($appIcon) { $form.Icon = $appIcon }
+
+New-AccentBar -TargetForm $form
 
 $label = New-Object System.Windows.Forms.Label
 $label.Text = "Klicke auf den Button, um fuer den aktiven`nNetzwerkadapter eine neue, zufaellige`nMAC-Adresse einzustellen."
+$label.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+$label.ForeColor = $textColor
 $label.AutoSize = $false
-$label.Size = New-Object System.Drawing.Size(360, 60)
-$label.Location = New-Object System.Drawing.Point(20, 15)
+$label.Size = New-Object System.Drawing.Size(370, 65)
+$label.Location = New-Object System.Drawing.Point(20, 30)
 $form.Controls.Add($label)
 
-$button = New-Object System.Windows.Forms.Button
-$button.Text = "Neue MAC-Adresse einstellen"
-$button.Size = New-Object System.Drawing.Size(240, 40)
-$button.Location = New-Object System.Drawing.Point(80, 85)
+$button = New-StyledButton -Text "Neue MAC-Adresse einstellen" -Width 260 -Height 42
+$button.Location = New-Object System.Drawing.Point(80, 105)
 $form.Controls.Add($button)
 
 $statusLabel = New-Object System.Windows.Forms.Label
 $statusLabel.Text = "Adapter: wird ermittelt ...`nAktuelle MAC: wird ermittelt ..."
-$statusLabel.AutoSize = $false
-$statusLabel.Size = New-Object System.Drawing.Size(360, 50)
-$statusLabel.Location = New-Object System.Drawing.Point(20, 140)
 $statusLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-$statusLabel.ForeColor = [System.Drawing.Color]::DimGray
+$statusLabel.ForeColor = $subTextColor
+$statusLabel.AutoSize = $false
+$statusLabel.Size = New-Object System.Drawing.Size(370, 50)
+$statusLabel.Location = New-Object System.Drawing.Point(20, 165)
 $form.Controls.Add($statusLabel)
 
 function Update-StatusLabel {
-    $adapter = Get-ActiveAdapter
-    if ($adapter) {
-        $currentMac = Format-Mac ($adapter.MacAddress -replace '-', '')
-        $statusLabel.Text = "Adapter: $($adapter.Name)`nAktuelle MAC: $currentMac"
-    } else {
-        $statusLabel.Text = "Adapter: kein aktiver Adapter gefunden"
+    try {
+        $adapter = Get-ActiveAdapter
+        if ($adapter) {
+            $currentMac = Format-Mac ($adapter.MacAddress -replace '-', '')
+            $statusLabel.Text = "Adapter: $($adapter.Name)`nAktuelle MAC: $currentMac"
+        } else {
+            $statusLabel.Text = "Adapter: kein aktiver Adapter gefunden"
+        }
+    } catch {
+        $statusLabel.Text = "Adapterstatus konnte nicht ermittelt werden."
     }
 }
 
 $noticeForm = New-NoticeForm
 
 $button.Add_Click({
-    $button.Enabled = $false
-    $button.Text = "Wird eingestellt ..."
-    $form.Refresh()
+    try {
+        $button.Enabled = $false
+        $button.Text = "Wird eingestellt ..."
+        $form.Refresh()
 
-    $adapter = Get-ActiveAdapter
-    if (-not $adapter) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Kein aktiver Netzwerkadapter gefunden.", "Fehler",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-    } else {
-        $oldMac = $adapter.MacAddress -replace '-', ''
-        $mac = New-RandomMac
-        $ok  = Set-AdapterMac -Adapter $adapter -Mac $mac -NoticeForm $noticeForm
-
-        if ($ok) {
-            Add-UsedMac $mac
-            $form.Hide()
-            [System.Windows.Forms.MessageBox]::Show(
-                "Erfolg",
-                "Erfolg",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-            $form.Close()
-            return
+        $adapter = Get-ActiveAdapter
+        if (-not $adapter) {
+            Show-FriendlyError -Message "Kein aktiver Netzwerkadapter gefunden.`nBitte pruefe deine Internetverbindung und versuche es erneut."
         } else {
-            [System.Windows.Forms.MessageBox]::Show(
-                "MAC-Adresse konnte nicht geaendert werden`n(Registry-Eintrag fuer diesen Adapter nicht gefunden).",
-                "Fehler",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+            $mac = New-RandomMac
+            $result = Set-AdapterMac -Adapter $adapter -Mac $mac -NoticeForm $noticeForm
+
+            if ($result.Success) {
+                Add-UsedMac $mac
+                $form.Hide()
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Erfolg",
+                    "Erfolg",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+                $form.Close()
+                return
+            } else {
+                Show-FriendlyError -Message "Die MAC-Adresse konnte nicht geaendert werden.`n`nBitte versuche es erneut. Falls das Problem bestehen bleibt, starte den PC neu."
+            }
         }
+    } catch {
+        Show-FriendlyError -Message "Es ist ein unerwarteter Fehler aufgetreten.`nBitte versuche es erneut oder starte den PC neu."
     }
 
     Update-StatusLabel
