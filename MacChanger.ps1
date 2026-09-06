@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.2.0"
+$ScriptVersion     = "1.3.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -306,24 +306,40 @@ function Set-AdapterMac {
 
 function New-NoticeForm {
     $notice = New-Object System.Windows.Forms.Form
-    $notice.Text = "Bitte warten"
-    $notice.Size = New-Object System.Drawing.Size(520, 260)
+    $notice.Text = "Bitte kurz warten"
+    $notice.Size = New-Object System.Drawing.Size(480, 220)
     $notice.StartPosition = "CenterScreen"
     $notice.FormBorderStyle = 'FixedDialog'
     $notice.ControlBox = $false
     $notice.MaximizeBox = $false
     $notice.MinimizeBox = $false
     $notice.TopMost = $true
-    $notice.BackColor = [System.Drawing.Color]::FromArgb(230, 57, 70)
+    $notice.BackColor = [System.Drawing.Color]::White
     if ($appIcon) { $notice.Icon = $appIcon }
 
+    $accentBar = New-Object System.Windows.Forms.Panel
+    $accentBar.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 212)
+    $accentBar.Dock = 'Top'
+    $accentBar.Height = 6
+    $notice.Controls.Add($accentBar)
+
     $noticeLabel = New-Object System.Windows.Forms.Label
-    $noticeLabel.Text = "Ihre Netzwerkverbindung wird`nkurz getrennt ..."
-    $noticeLabel.ForeColor = [System.Drawing.Color]::White
-    $noticeLabel.Font = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold)
+    $noticeLabel.Text = "Netzwerkverbindung wird kurz neu aufgebaut ..."
+    $noticeLabel.ForeColor = [System.Drawing.Color]::FromArgb(40, 40, 40)
+    $noticeLabel.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
     $noticeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-    $noticeLabel.Dock = 'Fill'
+    $noticeLabel.Size = New-Object System.Drawing.Size(440, 60)
+    $noticeLabel.Location = New-Object System.Drawing.Point(20, 60)
     $notice.Controls.Add($noticeLabel)
+
+    $subLabel = New-Object System.Windows.Forms.Label
+    $subLabel.Text = "Das dauert nur wenige Sekunden. Dieses Fenster schliesst sich automatisch."
+    $subLabel.ForeColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
+    $subLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $subLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+    $subLabel.Size = New-Object System.Drawing.Size(440, 40)
+    $subLabel.Location = New-Object System.Drawing.Point(20, 130)
+    $notice.Controls.Add($subLabel)
 
     return $notice
 }
@@ -443,11 +459,14 @@ $button.Add_Click({
 
         if ($ok) {
             Add-UsedMac $mac
+            $form.Hide()
             [System.Windows.Forms.MessageBox]::Show(
                 "Erfolg",
                 "Erfolg",
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+            $form.Close()
+            return
         } else {
             [System.Windows.Forms.MessageBox]::Show(
                 "MAC-Adresse konnte nicht geaendert werden`n(Registry-Eintrag fuer diesen Adapter nicht gefunden).",
