@@ -334,8 +334,8 @@ function Confirm-License {
         }
     } catch {
         $splash.Form.Hide()
-        Show-FriendlyError -Title "Unerwarteter Fehler" `
-            -Message "Bei der Lizenzpruefung ist ein unerwarteter Fehler aufgetreten.`nBitte versuche es spaeter erneut."
+        Show-FriendlyError -Title "Unerwarteter Fehler (Diagnose)" `
+            -Message "Diagnose-Info fuer die Fehlersuche:`n`n$($_.Exception.Message)`n`nZeile: $($_.InvocationInfo.ScriptLineNumber)"
         exit
     }
 }
