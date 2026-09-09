@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.4.0"
+$ScriptVersion     = "1.4.1"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -130,11 +130,11 @@ $usedFile = Join-Path $dataDir "used_macs.dat"
 
 if (-not (Test-Path $dataDir)) {
     New-Item -Path $dataDir -ItemType Directory -Force | Out-Null
-    (Get-Item $dataDir).Attributes = 'Hidden'
+    try { (Get-Item $dataDir -ErrorAction Stop).Attributes = 'Hidden' } catch { }
 }
 if (-not (Test-Path $usedFile)) {
     New-Item -Path $usedFile -ItemType File -Force | Out-Null
-    (Get-Item $usedFile).Attributes = 'Hidden'
+    try { (Get-Item $usedFile -ErrorAction Stop).Attributes = 'Hidden' } catch { }
 }
 
 $licenseFile = Join-Path $dataDir "license.dat"
@@ -197,8 +197,8 @@ function Get-StoredLicenseKey {
 
 function Set-StoredLicenseKey {
     param([string]$Key)
-    Set-Content -Path $licenseFile -Value $Key -NoNewline
-    (Get-Item $licenseFile).Attributes = 'Hidden'
+    Set-Content -Path $licenseFile -Value $Key -NoNewline -ErrorAction Stop
+    try { (Get-Item $licenseFile -ErrorAction Stop).Attributes = 'Hidden' } catch { }
 }
 
 function Get-HardwareId {
@@ -334,8 +334,8 @@ function Confirm-License {
         }
     } catch {
         $splash.Form.Hide()
-        Show-FriendlyError -Title "Unerwarteter Fehler (Diagnose)" `
-            -Message "Diagnose-Info fuer die Fehlersuche:`n`n$($_.Exception.Message)`n`nZeile: $($_.InvocationInfo.ScriptLineNumber)"
+        Show-FriendlyError -Title "Unerwarteter Fehler" `
+            -Message "Bei der Lizenzpruefung ist ein unerwarteter Fehler aufgetreten.`nBitte versuche es spaeter erneut."
         exit
     }
 }
