@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.4.1"
+$ScriptVersion     = "1.5.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -63,6 +63,19 @@ function New-AccentBar {
     $bar.Dock = 'Top'
     $bar.Height = 6
     $TargetForm.Controls.Add($bar)
+}
+
+function New-BrandFooter {
+    param([System.Windows.Forms.Form]$TargetForm)
+    $footer = New-Object System.Windows.Forms.Label
+    $footer.Text = "Nauru-Wlan"
+    $footer.Font = New-Object System.Drawing.Font("Segoe UI", 8)
+    $footer.ForeColor = [System.Drawing.Color]::FromArgb(170, 170, 170)
+    $footer.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
+    $footer.Dock = 'Bottom'
+    $footer.Height = 22
+    $footer.Padding = New-Object System.Windows.Forms.Padding(0, 0, 12, 0)
+    $TargetForm.Controls.Add($footer)
 }
 
 function New-StyledButton {
@@ -145,7 +158,7 @@ $licenseFile = Join-Path $dataDir "license.dat"
 function New-SplashForm {
     $splash = New-Object System.Windows.Forms.Form
     $splash.Text = "MAC-Adressen-Wechsler"
-    $splash.Size = New-Object System.Drawing.Size(360, 150)
+    $splash.Size = New-Object System.Drawing.Size(360, 175)
     $splash.StartPosition = "CenterScreen"
     $splash.FormBorderStyle = 'FixedDialog'
     $splash.ControlBox = $false
@@ -172,6 +185,8 @@ function New-SplashForm {
     $splashProgress.Size = New-Object System.Drawing.Size(280, 12)
     $splashProgress.Location = New-Object System.Drawing.Point(40, 85)
     $splash.Controls.Add($splashProgress)
+
+    New-BrandFooter -TargetForm $splash
 
     return @{ Form = $splash; Label = $splashLabel }
 }
@@ -229,7 +244,7 @@ function Test-LicenseOnline {
 function Show-LicenseDialog {
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = "Lizenz aktivieren"
-    $dlg.Size = New-Object System.Drawing.Size(420, 260)
+    $dlg.Size = New-Object System.Drawing.Size(420, 280)
     $dlg.StartPosition = "CenterScreen"
     $dlg.FormBorderStyle = 'FixedDialog'
     $dlg.MaximizeBox = $false
@@ -274,6 +289,8 @@ function Show-LicenseDialog {
     $dlg.AcceptButton = $okButton
     $dlg.CancelButton = $cancelButton
     $textBox.Focus()
+
+    New-BrandFooter -TargetForm $dlg
 
     $result = $dlg.ShowDialog()
     if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -425,7 +442,7 @@ function Set-AdapterMac {
 function New-NoticeForm {
     $notice = New-Object System.Windows.Forms.Form
     $notice.Text = "Bitte kurz warten"
-    $notice.Size = New-Object System.Drawing.Size(480, 230)
+    $notice.Size = New-Object System.Drawing.Size(480, 255)
     $notice.StartPosition = "CenterScreen"
     $notice.FormBorderStyle = 'FixedDialog'
     $notice.ControlBox = $false
@@ -461,6 +478,8 @@ function New-NoticeForm {
     $subLabel.Size = New-Object System.Drawing.Size(440, 30)
     $subLabel.Location = New-Object System.Drawing.Point(20, 140)
     $notice.Controls.Add($subLabel)
+
+    New-BrandFooter -TargetForm $notice
 
     return $notice
 }
@@ -521,7 +540,7 @@ $splash.Form.Close()
 # =====================================================================
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "MAC-Adressen-Wechsler"
-$form.Size = New-Object System.Drawing.Size(420, 300)
+$form.Size = New-Object System.Drawing.Size(420, 320)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -552,6 +571,8 @@ $statusLabel.AutoSize = $false
 $statusLabel.Size = New-Object System.Drawing.Size(370, 50)
 $statusLabel.Location = New-Object System.Drawing.Point(20, 165)
 $form.Controls.Add($statusLabel)
+
+New-BrandFooter -TargetForm $form
 
 function Update-StatusLabel {
     try {
