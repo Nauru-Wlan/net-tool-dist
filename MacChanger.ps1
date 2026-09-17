@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.5.0"
+$ScriptVersion     = "1.6.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -51,10 +51,11 @@ if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Adm
 # =====================================================================
 #  EINHEITLICHES DESIGN (Farben/Schriften fuer alle Fenster)
 # =====================================================================
-$accentColor  = [System.Drawing.Color]::FromArgb(0, 120, 212)
-$textColor    = [System.Drawing.Color]::FromArgb(40, 40, 40)
-$subTextColor = [System.Drawing.Color]::FromArgb(110, 110, 110)
-$bgColor      = [System.Drawing.Color]::White
+$accentColor  = [System.Drawing.Color]::FromArgb(56, 230, 200)
+$textColor    = [System.Drawing.Color]::FromArgb(234, 240, 250)
+$subTextColor = [System.Drawing.Color]::FromArgb(139, 160, 194)
+$bgColor      = [System.Drawing.Color]::FromArgb(11, 18, 32)
+$buttonTextColor = [System.Drawing.Color]::FromArgb(6, 35, 29)
 
 function New-AccentBar {
     param([System.Windows.Forms.Form]$TargetForm)
@@ -70,7 +71,7 @@ function New-BrandFooter {
     $footer = New-Object System.Windows.Forms.Label
     $footer.Text = "Nauru-Wlan"
     $footer.Font = New-Object System.Drawing.Font("Segoe UI", 8)
-    $footer.ForeColor = [System.Drawing.Color]::FromArgb(170, 170, 170)
+    $footer.ForeColor = [System.Drawing.Color]::FromArgb(90, 104, 130)
     $footer.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
     $footer.Dock = 'Bottom'
     $footer.Height = 22
@@ -86,7 +87,7 @@ function New-StyledButton {
     $btn.FlatStyle = 'Flat'
     $btn.FlatAppearance.BorderSize = 0
     $btn.BackColor = $accentColor
-    $btn.ForeColor = [System.Drawing.Color]::White
+    $btn.ForeColor = $buttonTextColor
     $btn.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
     $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
     return $btn
@@ -98,8 +99,8 @@ function New-SecondaryButton {
     $btn.Text = $Text
     $btn.Size = New-Object System.Drawing.Size($Width, $Height)
     $btn.FlatStyle = 'Flat'
-    $btn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(200, 200, 200)
-    $btn.BackColor = [System.Drawing.Color]::White
+    $btn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(60, 72, 94)
+    $btn.BackColor = [System.Drawing.Color]::FromArgb(23, 34, 58)
     $btn.ForeColor = $textColor
     $btn.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $btn.Cursor = [System.Windows.Forms.Cursors]::Hand
@@ -274,6 +275,9 @@ function Show-LicenseDialog {
     $textBox.Font = New-Object System.Drawing.Font("Segoe UI", 11)
     $textBox.Size = New-Object System.Drawing.Size(370, 30)
     $textBox.Location = New-Object System.Drawing.Point(20, 90)
+    $textBox.BackColor = [System.Drawing.Color]::FromArgb(23, 34, 58)
+    $textBox.ForeColor = $textColor
+    $textBox.BorderStyle = 'FixedSingle'
     $dlg.Controls.Add($textBox)
 
     $okButton = New-StyledButton -Text "Aktivieren" -Width 170 -Height 38
