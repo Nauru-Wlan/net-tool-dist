@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.7.0"
+$ScriptVersion     = "1.8.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -65,6 +65,10 @@ $dashColor       = [System.Drawing.Color]::FromArgb(196, 199, 214)   # gestriche
 $trackColor      = [System.Drawing.Color]::FromArgb(58, 80, 184)     # Ladebalken-Hintergrund
 $softButtonColor = [System.Drawing.Color]::FromArgb(48, 70, 178)     # Zweit-Button
 $footerColor     = [System.Drawing.Color]::FromArgb(150, 162, 214)   # Marken-Fusszeile
+$signalColor     = [System.Drawing.Color]::FromArgb(77, 232, 166)    # Status "ok" (nur als Text/Punkt)
+$stepDimColor    = [System.Drawing.Color]::FromArgb(122, 138, 208)   # Schritt noch offen
+$deepColor       = [System.Drawing.Color]::FromArgb(9, 18, 84)       # Konsolen-Flaeche
+$depthColor      = [System.Drawing.Color]::FromArgb(165, 123, 6)     # Arcade-Kante unter dem Hauptbutton
 
 function Set-RoundedRegion {
     param($Control, [int]$Radius = 10)
@@ -256,6 +260,16 @@ function New-StickerPanel {
         $g.DrawLine($pen, 16, 36, ($s.Width - 16), 36)
         $pen.Dispose()
 
+        # HUD-Ecken (kleine goldene Winkel in den vier Ecken)
+        $hud = New-Object System.Drawing.Pen($script:accentColor, 2)
+        $wd = $s.Width; $ht = $s.Height; $q = 7; $e2 = 11
+        $P = { param($x, $y) New-Object System.Drawing.Point($x, $y) }
+        $g.DrawLines($hud, [System.Drawing.Point[]]@((& $P $q ($q + $e2)), (& $P $q $q), (& $P ($q + $e2) $q)))
+        $g.DrawLines($hud, [System.Drawing.Point[]]@((& $P ($wd - $q - $e2) $q), (& $P ($wd - $q) $q), (& $P ($wd - $q) ($q + $e2))))
+        $g.DrawLines($hud, [System.Drawing.Point[]]@((& $P $q ($ht - $q - $e2)), (& $P $q ($ht - $q)), (& $P ($q + $e2) ($ht - $q))))
+        $g.DrawLines($hud, [System.Drawing.Point[]]@((& $P ($wd - $q - $e2) ($ht - $q)), (& $P ($wd - $q) ($ht - $q)), (& $P ($wd - $q) ($ht - $q - $e2))))
+        $hud.Dispose()
+
         # Barcode aus den 12 Hex-Ziffern
         $hex = [string]$s.Tag
         if ($hex.Length -eq 12) {
@@ -426,8 +440,8 @@ function New-SplashForm {
     $splash.Controls.Add((New-StarPanel -X 162 -Y 32 -Size 36))
 
     $splashLabel = New-Object System.Windows.Forms.Label
-    $splashLabel.Text = "Wird gestartet ..."
-    $splashLabel.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+    $splashLabel.Text = "> Wird gestartet ..."
+    $splashLabel.Font = New-Object System.Drawing.Font("Consolas", 11.5, [System.Drawing.FontStyle]::Bold)
     $splashLabel.ForeColor = $textColor
     $splashLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
     $splashLabel.Size = New-Object System.Drawing.Size(320, 30)
@@ -444,7 +458,7 @@ function New-SplashForm {
 
 function Set-SplashStatus {
     param($Splash, [string]$Text)
-    $Splash.Label.Text = $Text
+    $Splash.Label.Text = "> " + $Text
     $Splash.Form.Refresh()
     [System.Windows.Forms.Application]::DoEvents()
 }
@@ -658,6 +672,19 @@ function Get-ActiveAdapter {
     return Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1
 }
 
+# ---- Schritt-Anzeige im Wartefenster ([  ] offen, [..] laeuft, [ok] fertig) ----
+function Set-NoticeStep {
+    param([System.Windows.Forms.Form]$Form, [int]$Index, [string]$State)
+    $lbl = $Form.Tag[$Index]
+    switch ($State) {
+        "todo" { $lbl.Text = "[  ] " + $lbl.Tag; $lbl.ForeColor = $script:stepDimColor }
+        "run"  { $lbl.Text = "[..] " + $lbl.Tag; $lbl.ForeColor = $script:accentColor }
+        "ok"   { $lbl.Text = "[ok] " + $lbl.Tag; $lbl.ForeColor = $script:signalColor }
+    }
+    $Form.Refresh()
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
 function Set-AdapterMac {
     param($Adapter, [string]$Mac, [System.Windows.Forms.Form]$NoticeForm)
 
@@ -680,16 +707,28 @@ function Set-AdapterMac {
 
         Set-ItemProperty -Path $target -Name "NetworkAddress" -Value $Mac -Type String -ErrorAction Stop
 
+        for ($k = 0; $k -lt 4; $k++) { Set-NoticeStep -Form $NoticeForm -Index $k -State "todo" }
         $NoticeForm.Show()
         $NoticeForm.Refresh()
+        Set-NoticeStep -Form $NoticeForm -Index 0 -State "ok"
 
+        Set-NoticeStep -Form $NoticeForm -Index 1 -State "run"
         Disable-NetAdapter -Name $Adapter.Name -Confirm:$false -ErrorAction Stop
         for ($i = 0; $i -lt 10; $i++) {
             Start-Sleep -Milliseconds 200
             [System.Windows.Forms.Application]::DoEvents()
         }
+        Set-NoticeStep -Form $NoticeForm -Index 1 -State "ok"
+
+        Set-NoticeStep -Form $NoticeForm -Index 2 -State "run"
         Enable-NetAdapter -Name $Adapter.Name -Confirm:$false -ErrorAction Stop
         for ($i = 0; $i -lt 10; $i++) {
+            Start-Sleep -Milliseconds 200
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        Set-NoticeStep -Form $NoticeForm -Index 2 -State "ok"
+        Set-NoticeStep -Form $NoticeForm -Index 3 -State "ok"
+        for ($i = 0; $i -lt 2; $i++) {
             Start-Sleep -Milliseconds 200
             [System.Windows.Forms.Application]::DoEvents()
         }
@@ -716,31 +755,46 @@ function New-NoticeForm {
 
     New-AccentBar -TargetForm $notice
 
-    $notice.Controls.Add((New-StarPanel -X 202 -Y 30 -Size 36))
+    $notice.Controls.Add((New-StarPanel -X 202 -Y 26 -Size 36))
 
     $noticeLabel = New-Object System.Windows.Forms.Label
-    $noticeLabel.Text = "Netzwerkverbindung wird kurz neu aufgebaut ..."
+    $noticeLabel.Text = "Verbindung wird neu aufgebaut"
     $noticeLabel.ForeColor = $textColor
     $noticeLabel.Font = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold)
     $noticeLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-    $noticeLabel.Size = New-Object System.Drawing.Size(400, 56)
-    $noticeLabel.Location = New-Object System.Drawing.Point(20, 76)
+    $noticeLabel.Size = New-Object System.Drawing.Size(400, 32)
+    $noticeLabel.Location = New-Object System.Drawing.Point(20, 70)
     $notice.Controls.Add($noticeLabel)
 
-    $notice.Controls.Add((New-GoldProgress -X 60 -Y 142 -Width 320))
+    # Konsolen-Flaeche mit den vier Schritten
+    $console = New-Object System.Windows.Forms.Panel
+    $console.Size = New-Object System.Drawing.Size(360, 108)
+    $console.Location = New-Object System.Drawing.Point(40, 112)
+    $console.BackColor = $deepColor
+    Set-RoundedRegion -Control $console -Radius 6
+    $notice.Controls.Add($console)
 
-    $subLabel = New-Object System.Windows.Forms.Label
-    $subLabel.Text = "Das dauert nur wenige Sekunden. Dieses Fenster schliesst sich automatisch."
-    $subLabel.ForeColor = $subTextColor
-    $subLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
-    $subLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-    $subLabel.Size = New-Object System.Drawing.Size(400, 40)
-    $subLabel.Location = New-Object System.Drawing.Point(20, 162)
-    $notice.Controls.Add($subLabel)
+    $texts = @("Adresse in Registry schreiben", "Adapter trennen", "Adapter starten", "Neue Adresse aktiv")
+    $labels = @()
+    for ($k = 0; $k -lt 4; $k++) {
+        $l = New-Object System.Windows.Forms.Label
+        $l.Tag = $texts[$k]
+        $l.Text = "[  ] " + $texts[$k]
+        $l.Font = New-Object System.Drawing.Font("Consolas", 10.5)
+        $l.ForeColor = $stepDimColor
+        $l.AutoSize = $false
+        $l.Size = New-Object System.Drawing.Size(330, 22)
+        $l.Location = New-Object System.Drawing.Point(16, (10 + $k * 24))
+        $console.Controls.Add($l)
+        $labels += $l
+    }
+    $notice.Tag = $labels
+
+    $notice.Controls.Add((New-GoldProgress -X 60 -Y 236 -Width 320))
 
     New-BrandFooter -TargetForm $notice
 
-    $notice.ClientSize = New-Object System.Drawing.Size(440, 232)
+    $notice.ClientSize = New-Object System.Drawing.Size(440, 290)
     return $notice
 }
 
@@ -827,23 +881,45 @@ $form.Controls.Add($label)
 $sticker = New-StickerPanel -X 24 -Y 118 -Width 376 -HeadLeft "wird ermittelt ..." -HeadRight "Aktuelle Adresse" -MacHex ""
 $form.Controls.Add($sticker.Panel)
 
+# Arcade-Kante: dunkle Flaeche unter dem Button, der beim Druecken absinkt
+$btnShadow = New-Object System.Windows.Forms.Panel
+$btnShadow.Size = New-Object System.Drawing.Size(376, 46)
+$btnShadow.Location = New-Object System.Drawing.Point(24, 277)
+$btnShadow.BackColor = $depthColor
+Set-RoundedRegion -Control $btnShadow -Radius 9
+$form.Controls.Add($btnShadow)
+
 $button = New-StyledButton -Text "Neue MAC-Adresse einstellen" -Width 376 -Height 46
 $button.Location = New-Object System.Drawing.Point(24, 272)
 $form.Controls.Add($button)
+$button.BringToFront()
+$button.Add_MouseDown({ $button.Top = 275 })
+$button.Add_MouseUp({ $button.Top = 272 })
+
+$consoleLine = New-Object System.Windows.Forms.Label
+$consoleLine.Text = "> bereit"
+$consoleLine.Font = New-Object System.Drawing.Font("Consolas", 9.5)
+$consoleLine.ForeColor = $subTextColor
+$consoleLine.AutoSize = $false
+$consoleLine.Size = New-Object System.Drawing.Size(376, 22)
+$consoleLine.Location = New-Object System.Drawing.Point(24, 340)
+$form.Controls.Add($consoleLine)
 
 New-BrandFooter -TargetForm $form
 
-$form.ClientSize = New-Object System.Drawing.Size(424, 372)
+$form.ClientSize = New-Object System.Drawing.Size(424, 402)
 
 function Update-StatusLabel {
     try {
         $adapter = Get-ActiveAdapter
         if ($adapter) {
             $sticker.Left.Text = [string]$adapter.Name
+            $consoleLine.Text = "> bereit. Adapter: " + [string]$adapter.Name
             $hex = ([string]$adapter.MacAddress) -replace '[-:]', ''
             Set-StickerMac -Sticker $sticker -MacHex $hex
         } else {
             $sticker.Left.Text = "kein aktiver Adapter gefunden"
+            $consoleLine.Text = "> kein aktiver Adapter"
             Set-StickerMac -Sticker $sticker -MacHex ""
         }
     } catch {
@@ -858,6 +934,7 @@ $button.Add_Click({
     try {
         $button.Enabled = $false
         $button.Text = "Wird eingestellt ..."
+        $consoleLine.Text = "> Adresse wird gesetzt ..."
         $form.Refresh()
 
         $adapter = Get-ActiveAdapter
@@ -884,6 +961,7 @@ $button.Add_Click({
     }
 
     Update-StatusLabel
+    $button.Top = 272
     $button.Enabled = $true
     $button.Text = "Neue MAC-Adresse einstellen"
 })
