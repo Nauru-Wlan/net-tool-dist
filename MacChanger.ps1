@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.8.0"
+$ScriptVersion     = "1.8.1"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -112,6 +112,82 @@ function New-StarPanel {
         $b.Dispose()
     })
     return $p
+}
+
+# ---- App-Logo (blaues Quadrat mit goldenem 12-Zack-Stern, wie auf der Website) ----
+function New-LogoBitmap {
+    param([int]$Size)
+    $bmp = New-Object System.Drawing.Bitmap($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.Clear([System.Drawing.Color]::Transparent)
+
+    $d  = [single]($Size * 0.44)
+    $gp = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $gp.AddArc([single]0, [single]0, $d, $d, 180, 90)
+    $gp.AddArc([single]($Size - $d), [single]0, $d, $d, 270, 90)
+    $gp.AddArc([single]($Size - $d), [single]($Size - $d), $d, $d, 0, 90)
+    $gp.AddArc([single]0, [single]($Size - $d), $d, $d, 90, 90)
+    $gp.CloseFigure()
+    $bgBrush = New-Object System.Drawing.SolidBrush($script:bgColor)
+    $g.FillPath($bgBrush, $gp)
+
+    $c   = $Size / 2.0
+    $ro  = $Size * 0.40
+    $pts = Get-StarPoints -Cx $c -Cy $c -Ro $ro -Ri ($ro * 0.55)
+    $starBrush = New-Object System.Drawing.SolidBrush($script:accentColor)
+    $g.FillPolygon($starBrush, $pts)
+
+    $starBrush.Dispose(); $bgBrush.Dispose(); $gp.Dispose(); $g.Dispose()
+    return $bmp
+}
+
+# ---- .ico-Datei (mehrere Groessen, PNG-komprimiert) schreiben ----
+function Save-LogoIcon {
+    param([string]$Path)
+    $sizes = @(16, 24, 32, 48, 64, 256)
+    $pngs  = @()
+    foreach ($sz in $sizes) {
+        $bmp = New-LogoBitmap -Size $sz
+        $ms  = New-Object System.IO.MemoryStream
+        $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+        $pngs += , ($ms.ToArray())
+        $ms.Dispose(); $bmp.Dispose()
+    }
+    $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::Create)
+    $bw = New-Object System.IO.BinaryWriter($fs)
+    $bw.Write([uint16]0); $bw.Write([uint16]1); $bw.Write([uint16]$sizes.Count)
+    $offset = 6 + 16 * $sizes.Count
+    for ($i = 0; $i -lt $sizes.Count; $i++) {
+        $sz = $sizes[$i]
+        if ($sz -ge 256) { $wb = [byte]0 } else { $wb = [byte]$sz }
+        $bw.Write($wb); $bw.Write($wb); $bw.Write([byte]0); $bw.Write([byte]0)
+        $bw.Write([uint16]1); $bw.Write([uint16]32)
+        $bw.Write([uint32]$pngs[$i].Length); $bw.Write([uint32]$offset)
+        $offset += $pngs[$i].Length
+    }
+    foreach ($png in $pngs) { $bw.Write([byte[]]$png) }
+    $bw.Close(); $fs.Close()
+}
+
+# ---- Desktop-Verknuepfung auf das Logo umstellen (repariert sich bei jedem Start selbst) ----
+function Update-DesktopShortcutIcon {
+    try {
+        $icoPath = Join-Path $PSScriptRoot "logo.ico"
+        if (-not (Test-Path $icoPath)) { Save-LogoIcon -Path $icoPath }
+
+        $lnkPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "MAC Adressen Wechsler.lnk"
+        if (-not (Test-Path $lnkPath)) { return }
+
+        $ws  = New-Object -ComObject WScript.Shell
+        $lnk = $ws.CreateShortcut($lnkPath)
+        $want = "$icoPath,0"
+        if ($lnk.IconLocation -ne $want) {
+            $lnk.IconLocation = $want
+            $lnk.Save()
+            try { Start-Process -FilePath "$env:SystemRoot\System32\ie4uinit.exe" -ArgumentList "-show" -WindowStyle Hidden } catch { }
+        }
+    } catch { }
 }
 
 function New-AccentBar {
@@ -389,6 +465,10 @@ public class IconExtractor {
 
 function Get-AppIcon {
     try {
+        $bmp = New-LogoBitmap -Size 64
+        return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+    } catch { }
+    try {
         $large = New-Object IntPtr[] 1
         $small = New-Object IntPtr[] 1
         [IconExtractor]::ExtractIconEx("$env:SystemRoot\System32\shell32.dll", 43, $large, $small, 1) | Out-Null
@@ -419,6 +499,8 @@ if (-not (Test-Path $usedFile)) {
 }
 
 $licenseFile = Join-Path $dataDir "license.dat"
+
+Update-DesktopShortcutIcon
 
 # =====================================================================
 #  LADEBILDSCHIRM (waehrend Update-/Lizenzpruefung im Hintergrund laeuft)
