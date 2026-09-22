@@ -14,7 +14,7 @@ param(
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.8.1"
+$ScriptVersion     = "1.8.2"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
@@ -773,7 +773,7 @@ function Set-AdapterMac {
     try {
         $classGuid = "{4d36e972-e325-11ce-bfc1-08002be10318}"
         $classPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$classGuid"
-        $subkeys   = Get-ChildItem $classPath -ErrorAction Stop
+        $subkeys   = @(Get-ChildItem $classPath -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -match "^\d{4}$" })
 
         $target = $null
         foreach ($key in $subkeys) {
@@ -1035,11 +1035,11 @@ $button.Add_Click({
                 $form.Close()
                 return
             } else {
-                Show-FriendlyError -Message "Die MAC-Adresse konnte nicht geaendert werden.`n`nBitte versuche es erneut. Falls das Problem bestehen bleibt, starte den PC neu."
+                Show-FriendlyError -Message "Die MAC-Adresse konnte nicht geaendert werden.`n`nBitte versuche es erneut. Falls das Problem bestehen bleibt, starte den PC neu.`n`nDetails: $($result.Error)"
             }
         }
     } catch {
-        Show-FriendlyError -Message "Es ist ein unerwarteter Fehler aufgetreten.`nBitte versuche es erneut oder starte den PC neu."
+        Show-FriendlyError -Message "Es ist ein unerwarteter Fehler aufgetreten.`nBitte versuche es erneut oder starte den PC neu.`n`nDetails: $($_.Exception.Message)"
     }
 
     Update-StatusLabel
