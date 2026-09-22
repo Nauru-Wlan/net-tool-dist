@@ -19,7 +19,10 @@ $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
 
-# ---- Stiller Hintergrund-Update-Check (ueber Aufgabenplanung) ----
+# ---- Hintergrund-Update-Check (ueber Aufgabenplanung) ----
+# Patcht bei Bedarf die eigene Datei, aber NIE lautlos: Ein gefundenes und
+# installiertes Update wird immer per Sprechblase am Tray-Symbol angezeigt.
+# Kein Fenster, kein Klick noetig, aber auch nichts, was unbemerkt bleibt.
 if ($SilentUpdateOnly) {
     try {
         $manifest = Invoke-RestMethod -Uri $UpdateManifestUrl -TimeoutSec 5 -ErrorAction Stop
@@ -29,6 +32,19 @@ if ($SilentUpdateOnly) {
             if ((Get-Item $tempFile).Length -ge 100) {
                 Copy-Item -Path $tempFile -Destination $PSCommandPath -Force
                 Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+
+                try {
+                    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+                    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+                    $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
+                    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Information
+                    $notifyIcon.Visible = $true
+                    $notifyIcon.BalloonTipTitle = "Nauru-Wlan"
+                    $notifyIcon.BalloonTipText = "Update auf Version $($manifest.version) installiert. Wird beim naechsten Start verwendet."
+                    $notifyIcon.ShowBalloonTip(6000)
+                    Start-Sleep -Seconds 6
+                    $notifyIcon.Dispose()
+                } catch { }
             }
         }
     } catch { }
