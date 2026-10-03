@@ -7,49 +7,14 @@
     auf eine neuere Version (Auto-Update ueber GitHub) sowie eine gueltige
     Lizenz (ueber Google Apps Script).
 #>
-param(
-    [switch]$SilentUpdateOnly
-)
 
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.8.2"
+$ScriptVersion     = "1.9.0"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 # =====================================================================
-
-# ---- Hintergrund-Update-Check (ueber Aufgabenplanung) ----
-# Patcht bei Bedarf die eigene Datei, aber NIE lautlos: Ein gefundenes und
-# installiertes Update wird immer per Sprechblase am Tray-Symbol angezeigt.
-# Kein Fenster, kein Klick noetig, aber auch nichts, was unbemerkt bleibt.
-if ($SilentUpdateOnly) {
-    try {
-        $manifest = Invoke-RestMethod -Uri $UpdateManifestUrl -TimeoutSec 5 -ErrorAction Stop
-        if ($manifest.version -and $manifest.url -and ([version]$manifest.version -gt [version]$ScriptVersion)) {
-            $tempFile = Join-Path $env:TEMP "MacChanger_new.ps1"
-            Invoke-WebRequest -Uri $manifest.url -OutFile $tempFile -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
-            if ((Get-Item $tempFile).Length -ge 100) {
-                Copy-Item -Path $tempFile -Destination $PSCommandPath -Force
-                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-
-                try {
-                    Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
-                    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
-                    $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
-                    $notifyIcon.Icon = [System.Drawing.SystemIcons]::Information
-                    $notifyIcon.Visible = $true
-                    $notifyIcon.BalloonTipTitle = "Nauru-Wlan"
-                    $notifyIcon.BalloonTipText = "Update auf Version $($manifest.version) installiert. Wird beim naechsten Start verwendet."
-                    $notifyIcon.ShowBalloonTip(6000)
-                    Start-Sleep -Seconds 6
-                    $notifyIcon.Dispose()
-                } catch { }
-            }
-        }
-    } catch { }
-    exit
-}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -897,7 +862,8 @@ function New-NoticeForm {
 }
 
 # =====================================================================
-#  AUTO-UPDATE
+#  AUTO-UPDATE (nur beim normalen, sichtbaren Start - kein stiller
+#  Hintergrund-Task mehr, siehe Notion: Trojan:Script/Wacatac.H!ml)
 # =====================================================================
 function Test-AndApplyUpdate {
     Set-SplashStatus -Splash $splash -Text "Suche nach Updates ..."
@@ -927,8 +893,8 @@ function Test-AndApplyUpdate {
         Show-ThemedMessage -Title "Update installiert" `
             -Message "Eine neue Version ($($manifest.version)) wurde installiert.`nDas Tool wird jetzt neu gestartet."
 
-        Start-Process powershell -WindowStyle Hidden -ArgumentList `
-            "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`""
+        Start-Process powershell -ArgumentList `
+            "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
         return $true
     } catch {
         return $false
