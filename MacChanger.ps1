@@ -4,20 +4,26 @@
     Setzt eine zufaellige, lokal administrierte MAC-Adresse (LAN/WLAN-tauglich)
     fuer den aktiven Netzwerkadapter, merkt sich bereits verwendete Adressen,
     zeigt waehrend des Adapter-Neustarts einen Hinweis und prueft beim Start
-    auf eine neuere Version (Auto-Update ueber GitHub) sowie eine gueltige
-    Lizenz (ueber Google Apps Script).
+    auf eine neuere Version (Auto-Update ueber GitHub, nur mit gueltiger
+    Signatur) sowie eine gueltige Lizenz (ueber Google Apps Script).
 #>
 
 # =====================================================================
 #  KONFIGURATION
 # =====================================================================
-$ScriptVersion     = "1.9.0"
+$ScriptVersion     = "1.9.1"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
+$UpdateUrlPrefix   = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/"
+$UpdatePublicKey   = 'HIER_OEFFENTLICHEN_SCHLUESSEL_EINTRAGEN'
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
+$OfflineGraceDays  = 30
 # =====================================================================
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# Aeltere Windows-10-Staende nutzen sonst evtl. kein TLS 1.2 (GitHub verlangt es)
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
 # ---- Adminrechte sicherstellen (Registry-Aenderung erfordert das) ----
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal(
@@ -479,7 +485,8 @@ if (-not (Test-Path $usedFile)) {
     try { (Get-Item $usedFile -ErrorAction Stop).Attributes = 'Hidden' } catch { }
 }
 
-$licenseFile = Join-Path $dataDir "license.dat"
+$licenseFile      = Join-Path $dataDir "license.dat"
+$licenseCheckFile = Join-Path $dataDir "license.chk"
 
 Update-DesktopShortcutIcon
 
@@ -544,6 +551,27 @@ function Set-StoredLicenseKey {
     try { (Get-Item $licenseFile -ErrorAction Stop).Attributes = 'Hidden' } catch { }
 }
 
+# Merkt sich den Zeitpunkt der letzten erfolgreichen Online-Pruefung (fuer die Offline-Frist)
+function Set-LicenseValidatedNow {
+    try {
+        if (Test-Path $licenseCheckFile) { Remove-Item $licenseCheckFile -Force -ErrorAction SilentlyContinue }
+        Set-Content -Path $licenseCheckFile -Value ([DateTime]::UtcNow.ToString("o")) -NoNewline -ErrorAction Stop
+        try { (Get-Item $licenseCheckFile -ErrorAction Stop).Attributes = 'Hidden' } catch { }
+    } catch { }
+}
+
+# Offline-Start ist nur erlaubt, wenn die letzte erfolgreiche Pruefung nicht laenger als
+# $OfflineGraceDays Tage zurueckliegt. Eine einfach angelegte license.dat reicht nicht mehr.
+function Test-OfflineGraceValid {
+    try {
+        if (-not (Test-Path $licenseCheckFile)) { return $false }
+        $raw = (Get-Content $licenseCheckFile -Raw -ErrorAction Stop).Trim()
+        $t   = [DateTime]::Parse($raw, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind)
+        $age = [DateTime]::UtcNow - $t.ToUniversalTime()
+        return (($age.TotalDays -ge -1) -and ($age.TotalDays -le $OfflineGraceDays))
+    } catch { return $false }
+}
+
 function Get-HardwareId {
     try {
         $uuid = (Get-CimInstance -ClassName Win32_ComputerSystemProduct -ErrorAction Stop).UUID
@@ -558,15 +586,20 @@ function Get-HardwareId {
     return ([BitConverter]::ToString($hash) -replace '-', '').Substring(0, 32)
 }
 
+# Liefert den Status des Servers, "offline" bei Verbindungsfehler oder "unknown",
+# wenn die Antwort kein erwartbares Format hat (z. B. HTML-Fehlerseite).
 function Test-LicenseOnline {
     param([string]$Key, [string]$Hwid)
     try {
         $url  = "$LicenseApiUrl`?key=$([uri]::EscapeDataString($Key))&hwid=$Hwid"
         $resp = Invoke-RestMethod -Uri $url -TimeoutSec 10 -ErrorAction Stop
-        return $resp.status
     } catch {
         return "offline"
     }
+    $s = ""
+    try { $s = [string]$resp.status } catch { $s = "" }
+    if ([string]::IsNullOrWhiteSpace($s)) { return "unknown" }
+    return $s
 }
 
 function Show-LicenseDialog {
@@ -663,10 +696,12 @@ function Confirm-License {
         switch ($status) {
             "ok" {
                 Set-StoredLicenseKey -Key $storedKey
+                Set-LicenseValidatedNow
                 return
             }
             "invalid" {
                 Remove-Item $licenseFile -ErrorAction SilentlyContinue
+                Remove-Item $licenseCheckFile -Force -ErrorAction SilentlyContinue
                 $splash.Form.Hide()
                 Show-FriendlyError -Title "Ungueltiger Schluessel" `
                     -Message "Der eingegebene Lizenzschluessel ist ungueltig."
@@ -678,15 +713,25 @@ function Confirm-License {
                     -Message "Dieser Lizenzschluessel wird bereits auf einem anderen Geraet verwendet."
                 exit
             }
-            "offline" {
-                if ($hadStoredKeyBefore) {
+            default {
+                # "offline" oder unerwartete Serverantwort: nur weiterstarten, wenn dieser
+                # Schluessel hier schon erfolgreich geprueft wurde und das nicht zu lange her ist.
+                if ($hadStoredKeyBefore -and (Test-OfflineGraceValid)) {
                     return
-                } else {
-                    $splash.Form.Hide()
-                    Show-FriendlyError -Title "Keine Verbindung" `
-                        -Message "Fuer die Erstaktivierung wird eine Internetverbindung benoetigt."
-                    exit
                 }
+                $splash.Form.Hide()
+                if (-not $hadStoredKeyBefore) {
+                    $msg = "Fuer die Erstaktivierung wird eine Internetverbindung benoetigt."
+                    $ttl = "Keine Verbindung"
+                } elseif ($status -eq "offline") {
+                    $msg = "Die Lizenz muss nach laengerer Zeit erneut online geprueft werden.`nBitte verbinde dich mit dem Internet und starte das Tool neu."
+                    $ttl = "Keine Verbindung"
+                } else {
+                    $msg = "Der Lizenzserver hat unerwartet geantwortet.`nBitte versuche es spaeter erneut."
+                    $ttl = "Lizenzpruefung fehlgeschlagen"
+                }
+                Show-FriendlyError -Title $ttl -Message $msg
+                exit
             }
         }
     } catch {
@@ -862,9 +907,30 @@ function New-NoticeForm {
 }
 
 # =====================================================================
-#  AUTO-UPDATE (nur beim normalen, sichtbaren Start - kein stiller
-#  Hintergrund-Task mehr, siehe Notion: Trojan:Script/Wacatac.H!ml)
+#  AUTO-UPDATE (nur beim normalen, sichtbaren Start, kein Hintergrund-Task)
+#  Ein Update wird nur eingespielt, wenn
+#   - die Download-URL zu unserem GitHub-Repo gehoert,
+#   - die Signatur (version.json, Feld "sig") zum eingebetteten oeffentlichen
+#     Schluessel passt,
+#   - die Versionsnummer in der Datei zur Angabe im Manifest passt und neuer ist,
+#   - die Datei fehlerfrei als PowerShell-Skript gelesen werden kann.
+#  Vor dem Ueberschreiben wird eine Sicherung (.bak) angelegt.
 # =====================================================================
+function Test-UpdateSignature {
+    param([byte[]]$Data, [string]$SigBase64)
+    try {
+        if ([string]::IsNullOrWhiteSpace($UpdatePublicKey) -or $UpdatePublicKey -like "HIER_*") { return $false }
+        if ([string]::IsNullOrWhiteSpace($SigBase64)) { return $false }
+        $rsa = [System.Security.Cryptography.RSA]::Create()
+        $rsa.FromXmlString($UpdatePublicKey)
+        $sig = [Convert]::FromBase64String($SigBase64)
+        return [bool]$rsa.VerifyData(
+            $Data, $sig,
+            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+            [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+    } catch { return $false }
+}
+
 function Test-AndApplyUpdate {
     Set-SplashStatus -Splash $splash -Text "Suche nach Updates ..."
     try {
@@ -873,21 +939,39 @@ function Test-AndApplyUpdate {
         return $false
     }
 
-    if (-not $manifest.version -or -not $manifest.url) { return $false }
-
-    if ([version]$manifest.version -le [version]$ScriptVersion) {
-        return $false
-    }
+    if (-not $manifest.version -or -not $manifest.url -or -not $manifest.sig) { return $false }
 
     try {
+        $newVersion = [version]([string]$manifest.version)
+        if ($newVersion -le [version]$ScriptVersion) { return $false }
+    } catch { return $false }
+
+    if (-not ([string]$manifest.url).StartsWith($UpdateUrlPrefix)) { return $false }
+
+    $backupFile = "$PSCommandPath.bak"
+    $backedUp   = $false
+    try {
+        Set-SplashStatus -Splash $splash -Text "Update wird geprueft ..."
+        $resp  = Invoke-WebRequest -Uri ([string]$manifest.url) -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
+        $bytes = $resp.RawContentStream.ToArray()
+
+        if ($bytes.Length -lt 100) { return $false }
+        if (-not (Test-UpdateSignature -Data $bytes -SigBase64 ([string]$manifest.sig))) { return $false }
+
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $m = [regex]::Match($text, '\$ScriptVersion\s*=\s*"([^"]+)"')
+        if (-not $m.Success) { return $false }
+        if ([version]$m.Groups[1].Value -ne $newVersion) { return $false }
+
+        $tokens = $null
+        $parseErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tokens, [ref]$parseErrors)
+        if ($parseErrors -and $parseErrors.Count -gt 0) { return $false }
+
         Set-SplashStatus -Splash $splash -Text "Update wird installiert ..."
-        $tempFile = Join-Path $env:TEMP "MacChanger_new.ps1"
-        Invoke-WebRequest -Uri $manifest.url -OutFile $tempFile -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
-
-        if ((Get-Item $tempFile).Length -lt 100) { return $false }
-
-        Copy-Item -Path $tempFile -Destination $PSCommandPath -Force
-        Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+        Copy-Item -Path $PSCommandPath -Destination $backupFile -Force -ErrorAction Stop
+        $backedUp = $true
+        [System.IO.File]::WriteAllBytes($PSCommandPath, $bytes)
 
         $splash.Form.Hide()
         Show-ThemedMessage -Title "Update installiert" `
@@ -897,6 +981,9 @@ function Test-AndApplyUpdate {
             "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
         return $true
     } catch {
+        if ($backedUp) {
+            try { Copy-Item -Path $backupFile -Destination $PSCommandPath -Force -ErrorAction Stop } catch { }
+        }
         return $false
     }
 }
