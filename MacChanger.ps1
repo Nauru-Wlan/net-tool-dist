@@ -14,7 +14,7 @@
 $ScriptVersion     = "1.9.1"
 $UpdateManifestUrl = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/main/version.json"
 $UpdateUrlPrefix   = "https://raw.githubusercontent.com/Nauru-Wlan/net-tool-dist/"
-$UpdatePublicKey   = 'HIER_OEFFENTLICHEN_SCHLUESSEL_EINTRAGEN'
+$UpdatePublicKey   = '<RSAKeyValue><Modulus>z2Cg47cYBW84sNkAlUmkZ4529Z3r2iKm9e7nmb6AriLaVB7FlfVWwzqiUc6VAujtwLEwD2FKN13Edbt8FxUweSlBRs4C1BJKl7viORfOJsbdjjbDSUkgxW76I5OTbcedZOjsO9rWhSn4yegEOvIbMkoQ6PlfF6IZ1eTGoq5X8C2cwG3AGHcwQdfaoTYgAgJHWaokg7T12DzRaEwKGiT+ODH7NG6KtUwTQMbWbxHndYFSsgWei0tqFRy6bWYvTYkMKHFrlEns74oMlfJm7k5mQqpOGkscXkwUe9OlY0/FC65lzq3h1ffipk4j0FXwdo7y0SuVu8Z0hiQegyB2r3Ow8KZ216FyUNP1r7hstA/qgLBeaSLzS2qOFWBpifXRw74M3fDs2ktbSRomkuJKSjboLzxRGjWuv/ix254RhetLGp9gtVyaRQBZqV14bDmsqiFhwcuqCJ2xNEH3H3sauh2bhlcgZ+i8AQLU/4eVUujLRgJ63zkUPavsYVdRmIz9NNP1</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>'
 $LicenseApiUrl     = "https://script.google.com/macros/s/AKfycbw0XvYlXlFoW7YwqrEaZhrmXVtBWdwK77b5K-sgLuY4RyweIoI2lU0V3Mohh9_868bM/exec"
 $OfflineGraceDays  = 30
 # =====================================================================
