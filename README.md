@@ -26,7 +26,7 @@ Bewusste Entscheidung: Ein PowerShell-Skript kann jeder vor der Ausführung in e
 
 ## Sicherheitsprüfung
 
-Das komplette Auslieferungspaket wird vor jedem Release bei VirusTotal geprüft. Das Ergebnis wird unverändert in der Kundendokumentation (`Anleitung.txt`) und auf der Website verlinkt, auch wenn es nicht makellos ist. Treffer sind bisher ausschließlich generische Heuristik-Meldungen (z. B. „Trojan.Script.Generic“), keine bestätigten Funde – typisch für Skripte mit Adminrechten und Selbst-Update, aber jeder soll sich selbst ein Bild machen können.
+Das komplette Auslieferungspaket wird vor jedem Release bei VirusTotal geprüft. Das Ergebnis wird unverändert in der Kundendokumentation (`Anleitung.txt`) und auf der Website verlinkt, auch wenn es nicht makellos ist. Treffer sind bisher ausschließlich generische Heuristik-Meldungen (aktuell 7 von 63 Scannern, alle unter der Bezeichnung „Boxter“), keine bestätigten Funde – typisch für Skripte mit Adminrechten und Selbst-Update, aber jeder soll sich selbst ein Bild machen können.
 
 ## Auto-Update
 
